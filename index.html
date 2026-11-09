@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>學員問題庫</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: three columns, one per level of the sheet (關鍵字 > 問題類型 > 學員問題). Click a question to project it large. */
+:root{
+  --paper:#000000; --card:#0B0E14; --ink:#F5F7FB; --muted:#A9B4C8; --rule:#2A3243;
+  --mark:#FFD23F; --mark-ink:#0B0E14; --accent:#9FB0FF; --done:#7C879C;
+  --f-ui:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --f-q:var(--f-ui);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+.magnet-lines{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;opacity:.5}
+.magnet-lines__canvas{position:absolute;display:block;pointer-events:none}
+.magnet-lines__probe{position:absolute;top:0;left:0;height:0;visibility:hidden;pointer-events:none}
+header,.wheelview,main{position:relative;z-index:1}
+html,body{height:100%;margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-ui);font-size:16px;line-height:1.6;display:flex;flex-direction:column}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;padding:16px 24px;border-bottom:1px solid var(--rule);background:var(--card)}
+h1{font-family:var(--f-ui);font-weight:700;font-size:24px;margin:0;letter-spacing:.02em}
+.sub{color:var(--muted);font-size:14px}
+.progress{display:flex;align-items:center;gap:10px;font-variant-numeric:tabular-nums;font-size:14px;color:var(--muted)}
+.bar{width:120px;height:6px;background:var(--rule);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);width:0}
+.tools{margin-left:auto;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.search{position:relative}
+.search input{width:min(320px,70vw);height:44px;padding:0 14px;border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink);font:inherit}
+.btn{height:44px;padding:0 16px;border:1px solid var(--ink);border-radius:8px;background:transparent;font-weight:500}
+.btn:hover{background:var(--ink);color:#000}
+.btn.primary{background:var(--mark);color:var(--mark-ink);border-color:var(--mark-ink)}
+.btn.primary:hover{background:var(--mark-ink);color:var(--mark)}
+.btn.quiet{border-color:var(--rule);color:var(--muted)}
+
+main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(220px,.8fr) minmax(240px,1fr) minmax(320px,2.2fr)}
+.col{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--rule)}
+.col:last-child{border-right:0}
+.col h2{margin:0;padding:12px 20px;font-size:14px;font-weight:700;color:var(--muted);border-bottom:1px solid var(--rule);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.crumb{display:none}
+.list{flex:1;overflow-y:auto;list-style:none;margin:0;padding:8px 0}
+.item{display:block;width:100%;text-align:left;background:none;border:0;padding:12px 20px;border-left:6px solid transparent}
+.item:hover{background:var(--card)}
+.item[aria-current="true"]{background:var(--mark);color:var(--mark-ink);border-left-color:var(--mark-ink)}
+.item .row{display:flex;justify-content:space-between;gap:12px;align-items:baseline;font-weight:500}
+.item .n{font-variant-numeric:tabular-nums;font-size:14px;opacity:.75;white-space:nowrap}
+.item .track{height:3px;background:var(--rule);margin-top:8px;border-radius:2px;overflow:hidden}
+.item[aria-current="true"] .track{background:rgba(11,14,20,.3)}
+.item .track i{display:block;height:100%;background:var(--accent);width:0}
+.item[aria-current="true"] .track i{background:var(--mark-ink)}
+
+.q{display:flex;gap:14px;align-items:flex-start;padding:14px 20px;border-bottom:1px solid var(--rule)}
+.q:hover{background:var(--card)}
+.q .chk{flex:none;width:26px;height:26px;margin-top:2px;border:2px solid var(--muted);border-radius:6px;background:transparent;display:grid;place-items:center;padding:0;color:transparent}
+.q .chk[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#000}
+.q .txt{flex:1;text-align:left;background:none;border:0;padding:0;font-size:17px;line-height:1.65}
+.q.is-done .txt{color:var(--done);text-decoration:line-through;text-decoration-color:var(--rule)}
+.q .tag{display:block;font-size:13px;color:var(--muted);margin-bottom:2px;text-decoration:none}
+.empty{padding:40px 20px;color:var(--muted)}
+
+@media (max-width:860px){
+  header{padding:12px 16px}
+  .tools{margin-left:0;width:100%}
+  .search{flex:1}.search input{width:100%}
+  main{display:block;overflow:hidden;position:relative}
+  .col{position:absolute;inset:0;display:none;border-right:0}
+  main[data-level="0"] .c0,main[data-level="1"] .c1,main[data-level="2"] .c2{display:flex}
+  .crumb{display:inline-flex;height:32px;padding:0 12px;border:1px solid var(--rule);border-radius:16px;background:none;font-size:14px;align-items:center}
+  .col h2{padding:10px 16px}
+  .item,.q{padding-left:16px;padding-right:16px}
+  .bar{width:80px}
+}
+/* wheel view (OptionWheel, ported to plain JS) */
+.wheelview{flex:1;min-height:0;display:flex;flex-direction:column}
+.steps{display:flex;gap:0;border-bottom:1px solid var(--rule);background:var(--card)}
+.stepbtn{flex:1;text-align:left;background:none;border:0;border-bottom:5px solid transparent;padding:10px 20px;min-width:0}
+.stepbtn small{display:block;font-size:13px;color:var(--muted)}
+.stepbtn b{display:block;font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stepbtn[aria-current="step"]{border-bottom-color:var(--mark)}
+.stepbtn:disabled{opacity:.45;cursor:default}
+.wv{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}
+.wheelbox{position:relative;min-height:0;border-right:1px solid var(--rule);overflow:hidden}
+.wheelbox::after{content:"";position:absolute;left:0;right:0;top:50%;height:0;pointer-events:none}
+.wv--solo{grid-template-columns:1fr}
+.wv--solo .panel{display:none}
+.wv--solo .wheelbox{border-right:0}
+.whint{position:absolute;left:var(--ow-inset,40px);bottom:16px;margin:0;font-size:14px;color:var(--muted);pointer-events:none}
+.panel{display:flex;flex-direction:column;justify-content:center;gap:18px;padding:24px clamp(20px,4vw,56px);overflow-y:auto}
+.panel .hint{color:var(--muted);font-size:14px;margin:0}
+.panel .pk{font-family:var(--f-ui);font-weight:700;font-size:clamp(28px,4vw,52px);line-height:1.3;margin:0;text-wrap:balance}
+.panel .pq{font-family:var(--f-ui);font-weight:500;font-size:clamp(22px,2.6vw,36px);line-height:1.6;margin:0;border-left:8px solid var(--mark);padding-left:20px}
+.panel .meta{display:flex;align-items:center;gap:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.panel .meta .bar{width:160px}
+.panel .acts{display:flex;gap:12px;flex-wrap:wrap}
+.option-wheel{--ow-text-color:var(--muted);--ow-active-color:var(--ink);--ow-font-size:3rem;--ow-inset:40px;position:absolute;inset:0;overflow:hidden;cursor:grab;user-select:none;touch-action:none;outline:none}
+.option-wheel:focus-visible{box-shadow:inset 0 0 0 3px var(--accent)}
+.option-wheel--dragging{cursor:grabbing}
+.option-wheel__item{position:absolute;top:50%;left:var(--ow-inset);white-space:nowrap;font-size:var(--ow-font-size);line-height:1;font-weight:300;transform-origin:left center;cursor:pointer;will-change:transform,opacity,filter;color:color-mix(in srgb,var(--ow-active-color) calc(var(--ow-p,0)*100%),var(--ow-text-color))}
+.option-wheel__item--selected{font-weight:700}
+.option-wheel__item.is-done{text-decoration:line-through}
+.wheelview[hidden],main[hidden]{display:none}
+
+/* concentric rings */
+.rings .option-wheel__item{padding-left:12px}
+.rg{position:absolute;inset:0;pointer-events:none}
+.rg .option-wheel__item{pointer-events:auto}
+.rg--done .option-wheel__item--selected{--ow-active-color:var(--mark)}
+.ringmode #steps{display:none}
+.ringmode .wv{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
+.ringmode .wheelbox{border-right:0}
+.ringmode .panel{flex-direction:row;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-top:1px solid var(--rule);background:rgba(11,14,20,.88)}
+.ringmode .panel:empty{display:none}
+.ringmode .panel .capmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.ringmode .panel .pq{font-size:clamp(18px,2.2vw,28px);border-left-width:6px;padding-left:16px}
+.ringmode .panel .btn{flex:none}
+@media (max-width:860px){
+  .wv{grid-template-columns:1fr;grid-template-rows:minmax(280px,46%) 1fr}
+  .wv--solo{grid-template-rows:1fr}
+  .wheelbox{border-right:0;border-bottom:1px solid var(--rule)}
+  .stepbtn{padding:8px 12px}.stepbtn b{font-size:15px}
+  .panel{padding:16px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .item,.btn{transition:background .12s,color .12s}
+}
+</style>
+</head>
+<body>
+<div class="magnet-lines" id="magnet" aria-hidden="true"></div>
+<header>
+  <div>
+    <h1>學員問題庫</h1>
+  </div>
+  <div class="tools">
+    <div class="search" id="searchBox" hidden><label for="s" hidden>搜尋問題</label><input id="s" type="search" placeholder="搜尋全部問題，例如：作品集、面試"></div>
+    <button class="btn" id="viewBtn" type="button">切到清單檢視</button>
+    <button class="btn primary" id="rand" type="button">隨機抽一題</button>
+    <button class="btn quiet" id="reset" type="button">清除已回答</button>
+  </div>
+</header>
+
+<div class="wheelview" id="wheelView">
+  <div class="steps" id="steps"></div>
+  <div class="wv" id="wv"><div class="wheelbox" id="wheelBox"></div><div class="panel" id="panel"></div></div>
+</div>
+
+<main id="main" data-level="0" hidden>
+  <section class="col c0" aria-label="關鍵字">
+    <h2><span>關鍵字</span></h2>
+    <ul class="list" id="l0"></ul>
+  </section>
+  <section class="col c1" aria-label="問題類型">
+    <h2><button class="crumb" id="b1" type="button">‹ 關鍵字</button><span id="h1t">問題類型</span></h2>
+    <ul class="list" id="l1"></ul>
+  </section>
+  <section class="col c2" aria-label="學員問題">
+    <h2><button class="crumb" id="b2" type="button">‹ 問題類型</button><span id="h2t">學員問題</span></h2>
+    <ul class="list" id="l2"></ul>
+  </section>
+</main>
+
+<script>
+const DATA = {"作品集": {"作品與經驗不足": ["大二作品不多，只寫關鍵字顯得單薄，怎麼讓履歷有特色", "作品真的沒有很多，該怎麼完成作品集", "學生時期的經歷怎麼量化，才不會看起來空泛", "程式型遊戲企劃沒有可以直接展示的作品，是否只能靠發表言論", "作品都是學校團體作業，粗糙上不了台面，數量不夠怎麼辦", "能放入作品集的作品較少，要如何完成一份作品集", "目前的作品不夠多的話可以怎麼做", "作品不完整，能不能當成作品集的一部分", "作品要量少質高，還是多一些但品質普通", "目前沒有什麼作品", "二年級開始想四年級找工作時要有的作品集與口才，現在該怎麼準備", "不確定現在的作品能不能競爭想要的職位，累積怕太慢", "對自己的作品集不自信或不夠，怎麼辦"], "版面、格式與網站製作": ["作品中使用 AI 工具要占多少比例才不會不被允許；AI 協作算不算自己的作品", "領域比較雜的作品集展示方式", "作品的向度差別很大（空間、品牌、錄像、互動），都不夠水一個向度，編排與呈現的手法", "作品類型差別大、色彩與風格不一，怎麼安排", "如果是程式，作品集怎麼準備比較好", "互動型作品，業界比較想要什麼形式、從什麼角度看作品集", "互動作品因場地難記錄，影片以外要怎麼在作品集呈現", "動態作品集的音樂是找人做、買版權還是免費版權", "作品集裡有 logo 設計，但只看到 logo 在跑，想知道想讓對方看到什麼", "是不是架設作品集網站比較好（不佔空間、可隨時更新排版）", "作品集設計好之後丟給 AI 做成 HTML 上傳可以嗎", "程式向的遊戲企劃，作品要怎麼呈現", "互動式作品集在求職或學校推甄時也佔有優勢嗎", "我不會寫程式，怎麼把作品集網頁做得很厲害", "老師常用什麼網站做作品集", "作品集網站的版面怎麼排得乾淨，有沒有公式", "作品集用英文名字，是否比較無法給業主更深、更快的印象", "PM 類的作品怎麼放進作品集", "是不是看作品集的人都喜歡看動態類型", "太花或跑太久的作品集，有些公司會直接跳過嗎"], "風格與辨識度": ["非設計背景（戲劇）如何展現風格與個性，又不誤觸禮節上的界線", "還在探索創作方向、風格未確立，如何建立辨識度；作品集該多元還是一致"]}, "LinkedIn": {"沒內容可放": ["在學青年不知道怎麼建立自我定位、做作品集放到 LinkedIn，教學有點模糊", "不確定自己的技術能力能不能在 LinkedIn 以專業身分自稱，感覺迷茫", "作品放 LinkedIn 給公司看，還是進公司做專案後再放比較有說服力", "看了很多人的頁面，覺得現階段還是要累積能力和作品集，不然空空的沒東西放", "沒什麼參賽經歷，怎麼充實 LinkedIn；課業小作業可不可以丟進專案"], "設定與操作": ["不熟 LinkedIn 的操作，想多了解實際步驟", "想了解不同專業找工作用的平台差異，以及作品集和進企業累積專案哪個更有效益", "想了解 LinkedIn 實際怎麼寫比較好", "想了解更多 LinkedIn 的用法", "LinkedIn 的設定與操作，該選哪些履歷與資料", "如何優化 LinkedIn SEO", "LinkedIn 平台不知道怎麼修改，很茫然", "怎麼寫好 LinkedIn 的個人頁面還有點迷茫", "作品集和 LinkedIn 這類網站可以怎麼做", "LinkedIn 的線上作品集有沒有推薦的格式與呈現方式", "Personeo 驗證是不是必要的", "想把所有人的 LinkedIn 都加一遍，但不知道怎麼搜", "作品要怎麼展現在 LinkedIn 上", "LinkedIn 中英文頁面怎麼分開、找不到可以分開的地方", "科技、生物、研究相關要怎麼做 LinkedIn"], "經營與人脈": ["履歷怎麼準備才比較抓眼球", "怎麼讓 LinkedIn 更有吸引力", "學生怎麼經營 LinkedIn；第一次找前輩 coffee chat 怎麼開口比較自然", "發文怎麼規劃、怎麼經營自己", "如何豐富自己的 LinkedIn", "大多數 HR 比較喜歡什麼樣的 LinkedIn", "想知道更多優化履歷的方法"]}, "面試": {"緊張與臨場反應": ["怎麼緩解緊張", "一緊張就容易發揮錯誤，怎麼不緊張", "聽了很多技巧但還是沒信心實際運用，線上面試很恐怖"], "被問到不會的問題": ["剛好問到沒準備的題目要怎麼靈機應變", "不擅長臨場應變，是不是只能擬好劇本", "不小心當機或回答不出來怎麼辦", "面試官問不熟悉、沒接觸過的技能或程式時怎麼回答", "面試官問更有深度但我不會的問題，怎麼專業地說不會", "被問到沒有經驗的問題，如何誠實表達不足又讓對方看到思考能力與潛力", "學校學的不深入，面試官問我都不會，會不會覺得我亂寫"], "自我介紹與作品說明": ["程式轉遊戲企劃，在有限的面試時間怎麼呈現設計判斷與實際貢獻", "沒有專案或團隊合作，只有作業或私下創作，怎麼用 STAR 描述", "有正式工作經驗但跟設計無關，如何轉化成優勢", "缺乏業界經驗的學生，作品集包含課堂作業與團隊專案，怎麼介紹", "自我介紹的時長與內容抓不準；面試問題的範圍有哪些", "自我介紹的來歷要講多深，才不會太像公版", "經歷與作品較多時，如何在有限時間挑重點讓面試官留下印象", "面試時應該做自己，還是不要做自己", "多人面試（團面）怎麼凸顯自己的優勢"], "面試官視角與細節": ["面試提問環節要怎麼設計問題", "服裝怎麼選、設計領域現場怎麼呈現穿搭、1/2 要不要穿正裝", "想知道怎麼讓面試官更有好感，問薪資或小零食這類瑣碎問題會有什麼差異", "線上訊息回覆如果說話太客氣會不好嗎", "公司面試與學校推甄面試需要注意的點有什麼不同", "面試官怎麼看一個人的潛力", "面試官怎麼評估作品集，面對較深入的作品提問要怎麼有條理地回答", "在眾多能力相當的面試者中，怎麼讓面試官錄取自己", "老師看作品集時，在哪方面比較有記憶點、更留意哪方面的人才"], "空窗期與資遣": ["被資遣的話，公司會打電話給前公司打探表現，這要怎麼辦", "把壞的講成好的，面試官聽得出來會不會扣分", "「把壞的說成好的」具體是什麼概念"]}, "提案／口語表達": {"上台緊張與口語習慣": ["上台發表非常緊張，有沒有方法緩和", "說話搭配手勢是不是比較好", "想知道個人肢體表現或臉部表情該怎麼準備"], "提案與自我推銷": ["提報演講與一般上課提報有差異，想知道怎麼練習", "介紹自己的設計作品時，除了理念與製作過程，還能怎麼讓觀者理解價值", "不敢推銷自己，怎麼建立自信", "該怎麼練習介紹自己", "老師報告時內心有什麼小流程", "老師是怎麼提升提案能力的"]}, "模擬面試與點評": {"沒被抽到／沒輪到": ["沒抽到，想問公司面試與學校推甄面試的注意差異"], "被抽到的壓力": ["想知道調整心態的方法"], "想要更多演練與回饋": ["想聽兩位業師更多講評、更多人給不同意見", "希望針對不同類型的創業提案或作品集網站，再多做實戰演練"]}, "英文": {"英文能力與學習": ["學英文的方法", "想了解提升英文能力的方法", "怎麼學商業、職業交流用英文，網路 small talk 的方式"], "外商與國外工作": ["國外簽證與語言證照的要求", "外商面試要怎麼練口說", "國外工作的英文程度大概需要到什麼程度", "面試一定要有英文介紹嗎"]}, "跨領域與定位": {"跨領域背景": ["跨領域沒有核心技能，不知道選什麼職位，履歷太雜沒焦點", "從理工科系踏入設計領域，有什麼建議或生存法則", "跨領域科系的學生該怎麼展現自己", "自己到底適合做什麼的評估方式"], "產業與職位了解": ["想了解創意為主的產業就職環境、方法、潛規則", "想了解產業前瞻、進公司後的狀況、遊戲公司職缺和講師現職", "在校階段能做什麼、能加強什麼", "業界的即戰力到底要怎麼積累"]}, "薪資、跳槽與求職": {"薪資與市場價值": ["研究領域（不只科技）的薪資談判", "設計領域太大，不知道怎麼了解台灣各地設計職位的薪資", "面試完知道自己價錢之前，怎麼了解自己的市場價值", "想了解公司與談判的陷阱"], "跳槽": ["跳槽會不會被職業封殺；老師當初怎麼越跳越高", "進入很好的公司後，還是要用跳槽嗎", "外商或可跳槽的公司職缺會不會少很多，怎麼得知有職缺", "跳槽對退休金年資有影響嗎，到什麼程度就不需要跳槽", "如何判斷自己的實力層次、什麼時候適合跳槽"], "第一份工作": ["合法但不合常理的第一份工作，要先求有還是不要冒險", "新鮮人怎麼找第一份工作，職缺很少；除了海投還有什麼技巧", "老師是什麼時候開始認知到自己已經是黃金等級的設計師"]}, "AI 與程式工具": {"零基礎跟不上": ["沒程式基礎遇到 AI 工具當機，是否需要學基礎程式邏輯", "想知道各程式語言的差別與極限"], "工具使用疑問": ["GitHub 上要怎麼實作資料庫的新增、編輯、刪除功能（php 檔）", "現在要不要直接訂閱 AI 或 agent 付費版；怎麼最大化使用每個 AI", "Slack 串接需不需要 API，初學者適合嗎", "如何去除 AI 味"], "想要示範與實作": ["想知道這門課的課程大綱", "想知道更多 GitHub 部署的內容", "不確定要沿用過去的專案還是想新的；發想部分不知道怎麼做", "發想後會不會有諮詢；最後提案影片的呈現細節"]}, "課程節奏與教材": {"教材與範例": ["報告、作品集的重點是什麼"], "想多聽的內容": ["想要推薦的書；想知道講師自己面試表現不好的經歷與修正方式"]}, "自信與比較心理": {"比較後覺得不足": ["同學好厲害，我好廢，原本連 LinkedIn 是什麼都不知道"], "對自己作品沒信心": ["看到很多厲害的作品，也在想我也能做出來嗎"]}};
+// flatten: [{id,k,t,q}]
+const ALL=[]; const KW=[]; const TY={};
+for(const k of Object.keys(DATA)){KW.push(k);TY[k]=[];for(const t of Object.keys(DATA[k])){TY[k].push(t);for(const q of DATA[k][t])ALL.push({id:ALL.length,k,t,q});}}
+const KEY='qbank-done-v1';
+let done=new Set();
+try{done=new Set(JSON.parse(localStorage.getItem(KEY)||'[]'))}catch(e){}
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify([...done]))}catch(e){}};
+
+const st={k:KW[0],t:'all',s:'',level:0,stage:-1,view:'wheel'};
+const $=id=>document.getElementById(id);
+const el=(tag,cls,txt)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e};
+
+function inKw(k){return ALL.filter(x=>x.k===k)}
+function inTy(k,t){return ALL.filter(x=>x.k===k&&x.t===t)}
+function current(){
+  if(st.s.trim()){const w=st.s.trim().toLowerCase();return ALL.filter(x=>(x.q+x.k+x.t).toLowerCase().includes(w))}
+  return st.t==='all'?inKw(st.k):inTy(st.k,st.t);
+}
+function stat(list){const d=list.filter(x=>done.has(x.id)).length;return {n:list.length,d}}
+
+function navItem(label,list,active,onclick){
+  const li=el('li');const b=el('button','item');b.type='button';
+  if(active)b.setAttribute('aria-current','true');
+  const r=el('span','row');r.append(el('span',null,label));
+  const s=stat(list);r.append(el('span','n',s.d+' / '+s.n));
+  const tr=el('span','track');const i=el('i');i.style.width=(s.n?100*s.d/s.n:0)+'%';tr.append(i);
+  b.append(r,tr);b.onclick=onclick;li.append(b);return li;
+}
+function render(){
+  const searching=!!st.s.trim();
+  const l0=$('l0');l0.replaceChildren();
+  for(const k of KW)l0.append(navItem(k,inKw(k),!searching&&k===st.k,()=>{st.k=k;st.t='all';st.s='';$('s').value='';st.level=1;render()}));
+  const l1=$('l1');l1.replaceChildren();
+  $('h1t').textContent=searching?'搜尋中':st.k;
+  if(!searching){
+    l1.append(navItem('全部類型',inKw(st.k),st.t==='all',()=>{st.t='all';st.level=2;render()}));
+    for(const t of TY[st.k])l1.append(navItem(t,inTy(st.k,t),st.t===t,()=>{st.t=t;st.level=2;render()}));
+  } else {const li=el('li','empty','清除搜尋框即可回到分類瀏覽。');l1.append(li)}
+  const list=current();
+  $('h2t').textContent=searching?('搜尋結果 '+list.length+' 題'):((st.t==='all'?'全部類型':st.t)+' · '+list.length+' 題');
+  const l2=$('l2');l2.replaceChildren();
+  if(!list.length){l2.append(el('li','empty','沒有符合的問題。換個關鍵字再試一次。'))}
+  list.forEach((x,i)=>{
+    const li=el('li','q'+(done.has(x.id)?' is-done':''));
+    const c=el('button','chk','✓');c.type='button';c.id='c'+x.id;c.setAttribute('aria-pressed',done.has(x.id));c.setAttribute('aria-label','標記已回答');
+    c.onclick=()=>{toggle(x.id)};
+    const t=el('button','txt');t.type='button';
+    if(searching||st.t==='all'){t.append(el('span','tag',searching?x.k+' › '+x.t:x.t))}
+    t.append(document.createTextNode(x.q));
+    t.onclick=()=>toggle(x.id);
+    li.append(c,t);l2.append(li);
+  });
+  updProg();
+  $('main').dataset.level=st.level;
+  $('b1').onclick=()=>{st.level=0;render()};$('b2').onclick=()=>{st.level=1;render()};
+}
+function updProg(){}
+function toggle(id){done.has(id)?done.delete(id):done.add(id);save();render();if(st.view==='wheel'&&ws.step===2)refreshWheel();updProg()}
+
+/* OptionWheel port (React Bits), plain JS */
+function makeWheel(box,o){
+  const cfg={fontSize:o.fontSize,spacing:1.4,curve:1,tilt:6,blur:2,fade:.25,minOpacity:.05,smoothing:200};
+  const root=document.createElement('div');root.className='option-wheel';root.tabIndex=0;root.setAttribute('role','listbox');root.setAttribute('aria-label',o.label);
+  root.style.setProperty('--ow-font-size',cfg.fontSize+'rem');
+  const remPx=parseFloat(getComputedStyle(document.documentElement).fontSize)||16;
+  const rowH=Math.max(cfg.fontSize*cfg.spacing*remPx,1);
+  const n=o.items.length;
+  let pos=o.defaultSelected,target=pos,sel=pos,raf=null,last=0,drag=null,moved=false,wt=null;
+  const els=o.items.map((it,i)=>{const d=document.createElement('div');d.className='option-wheel__item'+(it.done?' is-done':'')+(i===sel?' option-wheel__item--selected':'');d.setAttribute('role','option');d.textContent=it.text;d.onclick=()=>click(i);root.append(d);return d});
+  const frame=now=>{
+    const dt=Math.min((now-last)/1000,.05);last=now;
+    const k=1-Math.exp(-dt/(cfg.smoothing/1000));
+    let next=pos+(target-pos)*k;const settled=Math.abs(target-next)<.001;if(settled)next=target;pos=next;
+    const tr=cfg.tilt*Math.PI/180,R=rowH/tr;
+    for(let i=0;i<n;i++){
+      const d=i-next,dist=Math.abs(d);
+      const ang=Math.max(-Math.PI/2,Math.min(Math.PI/2,d*tr));
+      const y=R*Math.sin(ang),x=-R*(1-Math.cos(ang))*cfg.curve,rot=ang*180/Math.PI;
+      const e=els[i];
+      e.style.transform='translate('+x.toFixed(2)+'px, calc('+y.toFixed(2)+'px - 50%)) rotate('+rot.toFixed(3)+'deg)';
+      e.style.opacity=String(Math.max(cfg.minOpacity,1-dist*cfg.fade));
+      e.style.filter='blur('+(dist*cfg.blur).toFixed(2)+'px)';
+      e.style.setProperty('--ow-p',Math.max(0,1-Math.min(dist,1)).toFixed(4));
+    }
+    raf=settled?null:requestAnimationFrame(frame);
+  };
+  const start=()=>{if(raf!=null)cancelAnimationFrame(raf);last=performance.now();raf=requestAnimationFrame(frame)};
+  const apply=(v,snap)=>{
+    v=Math.min(Math.max(v,0),Math.max(n-1,0));if(snap)v=Math.round(v);target=v;
+    const idx=Math.round(v);
+    if(idx!==sel){els[sel].classList.remove('option-wheel__item--selected');sel=idx;els[sel].classList.add('option-wheel__item--selected');o.onChange(idx)}
+    start();
+  };
+  function click(i){if(moved)return;if(i===sel)o.onPick(i);else apply(i,true)}
+  root.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const delta=e.deltaMode===1?e.deltaY*24:e.deltaY;
+    apply(target+Math.max(-1,Math.min(1,delta/rowH)),false);
+    clearTimeout(wt);wt=setTimeout(()=>apply(target,true),140);
+  },{passive:false});
+  root.addEventListener('pointerdown',e=>{drag={y:e.clientY,s:target,id:e.pointerId};moved=false;root.classList.add('option-wheel--dragging')});
+  root.addEventListener('pointermove',e=>{
+    if(!drag)return;const dy=e.clientY-drag.y;
+    if(!moved&&Math.abs(dy)>4){moved=true;try{root.setPointerCapture(drag.id)}catch(_){}}
+    if(moved)apply(drag.s-dy/rowH,false);
+  });
+  const end=()=>{if(!drag)return;drag=null;root.classList.remove('option-wheel--dragging');if(moved){apply(target,true);setTimeout(()=>{moved=false},0)}};
+  root.addEventListener('pointerup',end);root.addEventListener('pointercancel',end);
+  root.addEventListener('keydown',e=>{
+    if(e.key==='ArrowUp'||e.key==='ArrowLeft'){e.preventDefault();apply(Math.round(target)-1,true)}
+    else if(e.key==='ArrowDown'||e.key==='ArrowRight'){e.preventDefault();apply(Math.round(target)+1,true)}
+    else if(e.key==='Enter'){e.preventDefault();o.onPick(sel)}
+  });
+  box.replaceChildren(root);start();
+  return {destroy(){if(raf!=null)cancelAnimationFrame(raf);clearTimeout(wt)},focus(){root.focus({preventScroll:true})}};
+}
+
+/* three-step wheel flow: keyword > type > question */
+const ws={step:0,k:KW[0],t:'all',idx:[0,0,0],wheel:null};
+const STEP_NAMES=['關鍵字','問題類型','學員問題'];
+const small=()=>window.innerWidth<=860;
+function wsList(){return ws.t==='all'?inKw(ws.k):inTy(ws.k,ws.t)}
+function wsItems(){
+  if(ws.step===0)return KW.map(k=>({text:k,list:inKw(k)}));
+  if(ws.step===1)return [{text:'全部類型',list:inKw(ws.k),val:'all'}].concat(TY[ws.k].map(t=>({text:t,list:inTy(ws.k,t),val:t})));
+  const max=small()?13:20;
+  return wsList().map(x=>({text:x.q.length>max?x.q.slice(0,max)+'…':x.q,done:done.has(x.id),q:x}));
+}
+function renderSeq(keepFocus){
+  $('wheelView').classList.remove('ringmode');
+  if(ws.wheel)ws.wheel.destroy();
+  const items=wsItems();
+  ws.idx[ws.step]=Math.min(ws.idx[ws.step],items.length-1);
+  const sz=small()?[2,1.6,1.1]:[3,2.4,1.3];
+  // steps bar
+  const sb=$('steps');sb.replaceChildren();
+  const vals=[ws.k,ws.t==='all'?'全部類型':ws.t,'選一題'];
+  STEP_NAMES.forEach((nm,i)=>{
+    const b=el('button','stepbtn');b.type='button';b.disabled=i>ws.step;
+    if(i===ws.step)b.setAttribute('aria-current','step');
+    const s=el('small',null,nm);const v=el('b',null,i<ws.step?vals[i]:(i===ws.step?'選擇中':'—'));
+    b.append(s,v);b.onclick=()=>{ws.step=i;renderWheel()};sb.append(b);
+  });
+  const onPick=i=>{
+    const it=wsItems()[i];
+    if(ws.step===0){ws.k=it.text;ws.t='all';ws.idx[1]=0;ws.idx[2]=0;ws.step=1;renderWheel()}
+    else if(ws.step===1){ws.t=it.val;ws.idx[2]=0;ws.step=2;renderWheel()}
+  };
+  const onChange=i=>{ws.idx[ws.step]=i;renderPanel()};
+  ws.wheel=makeWheel($('wheelBox'),{items,defaultSelected:ws.idx[ws.step],fontSize:sz[ws.step],label:STEP_NAMES[ws.step],onChange,onPick});
+  ws.onPick=onPick;
+  $('wv').classList.toggle('wv--solo',ws.step<2);
+  if(ws.step<2){const h=el('p','whint','點中間那一項，進入下一層');$('wheelBox').append(h)}
+  renderPanel();
+  if(keepFocus!==false)ws.wheel.focus();
+}
+function renderPanel(){
+  const p=$('panel');p.replaceChildren();
+  const items=wsItems();const it=items[ws.idx[ws.step]];if(!it)return;
+  if(ws.step<2)return;
+  {
+    const x=it.q;
+    p.append(el('p','hint',x.k+' › '+x.t+'　第 '+(ws.idx[2]+1)+' / '+items.length+' 題'));
+    p.append(el('p','pq',x.q));
+    const a=el('div','acts');
+    const b2=el('button','btn primary',done.has(x.id)?'取消已回答':'標記已回答');b2.type='button';b2.onclick=()=>toggle(x.id);
+    a.append(b2);p.append(a);
+  }
+}
+/* concentric rings: one OptionWheel per level, sharing a centre */
+function makeRings(box,g,h){
+  const root=document.createElement('div');root.className='option-wheel rings';root.tabIndex=0;root.setAttribute('role','group');root.setAttribute('aria-label','三層選擇：關鍵字、問題類型、學員問題');
+  const rings=[null,null,null];
+  let raf=null,last=0,drag=null,moved=false,wt=null,wheelRing=0,active=0;
+  const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const clampN=(v,a,b)=>Math.min(b,Math.max(a,v));
+  function setActive(a){active=a;rings.forEach((r,i)=>{if(!r)return;r.wrap.classList.toggle('rg--active',i===a);r.wrap.classList.toggle('rg--done',i<a)})}
+  function setRing(i,items,def,anim){
+    if(rings[i])rings[i].wrap.remove();
+    const R=g.R[i],wrap=document.createElement('div');wrap.className='rg';
+    const r={wrap,R,rowH:g.rowH[i],tilt:g.rowH[i]/R,pos:def,target:def,sel:def,n:items.length,els:[]};
+    r.els=items.map((it,j)=>{
+      const e=document.createElement('div');
+      e.className='option-wheel__item'+(it.done?' is-done':'')+(j===def?' option-wheel__item--selected':'');
+      e.style.left=g.cx+'px';e.style.top=g.cy+'px';e.style.fontSize=g.fs[i]+'px';e.setAttribute('role','option');e.textContent=it.text;
+      e.onclick=()=>click(i,j);wrap.append(e);return e;
+    });
+    rings[i]=r;root.append(wrap);
+    if(anim!==false&&!reduced)wrap.animate([{opacity:0},{opacity:1}],{duration:380,easing:'ease-out'});
+    setActive(active);start();
+  }
+  function hide(from){for(let i=from;i<3;i++)if(rings[i]){rings[i].wrap.remove();rings[i]=null}}
+  const frame=now=>{
+    const dt=Math.min((now-last)/1000,.05);last=now;
+    const k=1-Math.exp(-dt/.2);let busy=false;
+    rings.forEach(r=>{
+      if(!r)return;
+      let next=r.pos+(r.target-r.pos)*k;const settled=Math.abs(r.target-next)<.001;
+      if(settled)next=r.target;else busy=true;r.pos=next;
+      for(let j=0;j<r.n;j++){
+        const d=j-next,dist=Math.abs(d),ang=clampN(d*r.tilt,-Math.PI/2,Math.PI/2),e=r.els[j];
+        e.style.transform='translate('+(r.R*Math.cos(ang)).toFixed(2)+'px, calc('+(r.R*Math.sin(ang)).toFixed(2)+'px - 50%)) rotate('+(ang*180/Math.PI).toFixed(3)+'deg)';
+        e.style.opacity=String(Math.max(.05,1-dist*.25));
+        e.style.filter=dist>0?'blur('+(dist*2).toFixed(2)+'px)':'none';
+        e.style.setProperty('--ow-p',Math.max(0,1-Math.min(dist,1)).toFixed(4));
+      }
+    });
+    raf=busy?requestAnimationFrame(frame):null;
+  };
+  function start(){if(raf!=null)cancelAnimationFrame(raf);last=performance.now();raf=requestAnimationFrame(frame)}
+  function apply(i,v,snap){
+    const r=rings[i];if(!r)return;
+    v=clampN(v,0,Math.max(r.n-1,0));if(snap)v=Math.round(v);r.target=v;
+    const idx=Math.round(v);
+    if(idx!==r.sel){r.els[r.sel].classList.remove('option-wheel__item--selected');r.sel=idx;r.els[idx].classList.add('option-wheel__item--selected');h.onChange(i,idx)}
+    start();
+  }
+  function ringAt(e){
+    const rc=root.getBoundingClientRect(),dist=Math.hypot(e.clientX-rc.left-g.cx,e.clientY-rc.top-g.cy);
+    let best=-1,bd=1e9;
+    rings.forEach((r,i)=>{if(!r)return;const dd=Math.abs(dist-r.R);if(dd<bd){bd=dd;best=i}});
+    return best<0?active:best;
+  }
+  function click(i,j){if(moved)return;const r=rings[i];if(!r)return;if(j===r.sel)h.onPick(i,j);else apply(i,j,true)}
+  root.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const i=ringAt(e),r=rings[i];if(!r)return;wheelRing=i;
+    const delta=e.deltaMode===1?e.deltaY*24:e.deltaY;
+    apply(i,r.target+clampN(delta/r.rowH,-1,1),false);
+    clearTimeout(wt);wt=setTimeout(()=>{const q=rings[wheelRing];if(q)apply(wheelRing,q.target,true)},140);
+  },{passive:false});
+  root.addEventListener('pointerdown',e=>{const i=ringAt(e),r=rings[i];if(!r)return;drag={y:e.clientY,i,s:r.target,id:e.pointerId};moved=false;root.classList.add('option-wheel--dragging')});
+  root.addEventListener('pointermove',e=>{
+    if(!drag)return;const dy=e.clientY-drag.y;
+    if(!moved&&Math.abs(dy)>4){moved=true;try{root.setPointerCapture(drag.id)}catch(_){}}
+    if(moved&&rings[drag.i])apply(drag.i,drag.s-dy/rings[drag.i].rowH,false);
+  });
+  const end=()=>{if(!drag)return;const i=drag.i;drag=null;root.classList.remove('option-wheel--dragging');if(moved){if(rings[i])apply(i,rings[i].target,true);setTimeout(()=>{moved=false},0)}};
+  root.addEventListener('pointerup',end);root.addEventListener('pointercancel',end);
+  root.addEventListener('keydown',e=>{
+    const r=rings[active];if(!r)return;
+    if(e.key==='ArrowUp'){e.preventDefault();apply(active,Math.round(r.target)-1,true)}
+    else if(e.key==='ArrowDown'){e.preventDefault();apply(active,Math.round(r.target)+1,true)}
+    else if(e.key==='Enter'||e.key==='ArrowRight'){e.preventDefault();h.onPick(active,r.sel)}
+    else if(e.key==='ArrowLeft'||e.key==='Escape'||e.key==='Backspace'){e.preventDefault();h.onBack()}
+  });
+  box.replaceChildren(root);
+  return {setRing,hide,setActive,focus(){root.focus({preventScroll:true})},destroy(){if(raf!=null)cancelAnimationFrame(raf);clearTimeout(wt)}};
+}
+function ringGeom(box){
+  const W=box.clientWidth||window.innerWidth,H=box.clientHeight||500,cx=28,cy=H/2;
+  const clampN=(v,a,b)=>Math.min(b,Math.max(a,v));
+  let r=clampN(W/1280,.6,1.1);r=Math.min(r,(W-cx-20-300)/670);r=Math.max(r,.45);
+  const R=[100*r,370*r,670*r];
+  const maxLen0=Math.max(...KW.map(k=>k.length)),maxLen1=Math.max(4,...Object.values(TY).flat().map(t=>t.length));
+  const avail=[R[1]-R[0]-28,R[2]-R[1]-28,W-cx-R[2]-28];
+  const fs=[clampN(avail[0]/maxLen0,14,30),clampN(avail[1]/maxLen1,14,24),clampN(W/70,15,19)];
+  return {W,H,cx,cy,R,fs,rowH:fs.map(f=>f*1.55),maxc1:Math.max(3,Math.floor(avail[1]/fs[1])),maxc2:Math.max(6,Math.floor(avail[2]/fs[2]))};
+}
+function ringItems(i,g){
+  if(i===0)return KW.map(k=>({text:k}));
+  if(i===1)return [{text:'全部類型',val:'all'}].concat(TY[ws.k].map(t=>({text:t.length>g.maxc1?t.slice(0,g.maxc1)+'…':t,val:t})));
+  return wsList().map(x=>({text:x.q.length>g.maxc2?x.q.slice(0,g.maxc2)+'…':x.q,done:done.has(x.id),q:x}));
+}
+function renderCaption(){
+  const p=$('panel');p.replaceChildren();
+  if(ws.step<2)return;
+  const x=wsList()[ws.idx[2]];if(!x)return;
+  const main=el('div','capmain');main.append(el('p','hint',x.k+' › '+x.t+'　第 '+(ws.idx[2]+1)+' / '+wsList().length+' 題'),el('p','pq',x.q));
+  const b=el('button','btn primary',done.has(x.id)?'取消已回答':'標記已回答');b.type='button';b.onclick=()=>toggle(x.id);
+  p.append(main,b);
+}
+function renderRings(keepFocus){
+  if(ws.wheel)ws.wheel.destroy();
+  $('wheelView').classList.add('ringmode');$('wv').classList.remove('wv--solo');
+  const box=$('wheelBox'),g=ringGeom(box);ws.geom=g;
+  const R=makeRings(box,g,{
+    onChange(i,idx){
+      ws.idx[i]=idx;
+      if(i===0){ws.k=KW[idx];ws.t='all';ws.idx[1]=0;ws.idx[2]=0;if(ws.step>0){ws.step=0;R.hide(1);R.setActive(0)}}
+      else if(i===1){ws.t=ringItems(1,g)[idx].val;ws.idx[2]=0;if(ws.step>1){ws.step=1;R.hide(2);R.setActive(1)}}
+      updateRingUi();
+    },
+    onPick(i){
+      if(i!==ws.step||i>1)return;
+      if(i===0){ws.t='all';ws.idx[1]=0;ws.idx[2]=0;ws.step=1;R.setRing(1,ringItems(1,g),0);R.setActive(1)}
+      else{ws.idx[2]=0;ws.step=2;R.setRing(2,ringItems(2,g),0);R.setActive(2)}
+      updateRingUi();
+    },
+    onBack(){if(ws.step>0){ws.step--;R.hide(ws.step+1);R.setActive(ws.step);updateRingUi()}}
+  });
+  ws.wheel=R;
+  for(let i=0;i<=ws.step;i++)R.setRing(i,ringItems(i,g),ws.idx[i],false);
+  R.setActive(ws.step);
+  const hint=el('p','whint','點中間那一項，展開下一圈');hint.id='rhint';hint.style.left=g.cx+'px';box.append(hint);
+  updateRingUi();
+  if(keepFocus!==false)R.focus();
+}
+function updateRingUi(){renderCaption();const h=$('rhint');if(h)h.hidden=ws.step>=2}
+function refreshWheel(){
+  if(small()||!ws.geom||!$('wheelView').classList.contains('ringmode')){renderWheel(false);return}
+  ws.wheel.setRing(2,ringItems(2,ws.geom),ws.idx[2],false);renderCaption();
+}
+function renderWheel(kf){small()?renderSeq(kf):renderRings(kf)}
+
+function setView(v){
+  st.view=v;const w=v==='wheel';
+  $('wheelView').hidden=!w;$('main').hidden=w;$('searchBox').hidden=w;
+  $('viewBtn').textContent=w?'切到清單檢視':'切到滾輪檢視';
+  updProg();
+  if(w)renderWheel();else render();
+}
+$('viewBtn').onclick=()=>setView(st.view==='wheel'?'list':'wheel');
+let rz;window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{if(st.view==='wheel')renderWheel(false)},200)});
+
+/* search, random, reset */
+$('s').addEventListener('input',e=>{st.s=e.target.value;if(st.s.trim())st.level=2;render()});
+$('rand').onclick=()=>{
+  const pool=ALL.filter(x=>!done.has(x.id));
+  if(!pool.length){$('rand').textContent='全部都回答完了';return}
+  const x=pool[Math.floor(Math.random()*pool.length)];
+  st.s='';$('s').value='';st.k=x.k;st.t=x.t;st.level=2;
+  const pos=inTy(x.k,x.t).findIndex(y=>y.id===x.id);
+  ws.k=x.k;ws.t=x.t;ws.step=2;ws.idx=[KW.indexOf(x.k),TY[x.k].indexOf(x.t)+1,pos];
+  render();if(st.view==='wheel')renderWheel(false);
+};
+let armed=false;
+$('reset').onclick=()=>{
+  if(!armed){armed=true;$('reset').textContent='再按一次確認清除';setTimeout(()=>{armed=false;$('reset').textContent='清除已回答'},3000);return}
+  done.clear();save();armed=false;$('reset').textContent='清除已回答';render();if(st.view==='wheel')renderWheel(false);
+};
+setView('wheel');
+/* MagnetLines port (React Bits), plain JS */
+const VERTEX = `#version 300 es
+layout(location = 0) in vec2 aCorner;
+layout(location = 1) in vec2 aCenter;
+layout(location = 2) in vec4 aState;
+uniform mat3 uView;
+uniform vec2 uCanvas;
+uniform vec2 uOffset;
+uniform vec2 uLine;
+uniform float uStretch;
+uniform float uHead;
+uniform float uPad;
+uniform float uFar;
+out vec2 vLocal;
+out vec2 vHalf;
+out float vEmphasis;
+out float vFlash;
+out float vAngle;
+out float vShown;
+void main() {
+  float angle = aState.x;
+  float emphasis = aState.y;
+  float halfLength = uLine.x * (1.0 + uStretch * emphasis);
+  float halfWidth = uLine.y;
+  vec2 extent = vec2(halfLength + uPad, max(halfWidth, uHead * halfLength) + uPad);
+  vec2 local = aCorner * extent;
+  vec2 axis = vec2(cos(angle), sin(angle));
+  vec2 point = aCenter + axis * local.x + vec2(-axis.y, axis.x) * local.y;
+  vec3 screen = uView * vec3(point, 1.0);
+  vec2 scale = vec2(2.0 / uCanvas.x, -2.0 / uCanvas.y);
+  vec2 shift = vec2(-1.0 + 2.0 * uOffset.x / uCanvas.x, 1.0 - 2.0 * uOffset.y / uCanvas.y);
+  gl_Position = vec4(screen.xy * scale + shift * screen.z, 0.0, screen.z);
+  float depth = (uView * vec3(aCenter, 1.0)).z;
+  vLocal = local;
+  vHalf = vec2(halfLength, halfWidth);
+  vEmphasis = emphasis;
+  vFlash = aState.z;
+  vAngle = angle;
+  vShown = aState.w * (1.0 - smoothstep(uFar * 0.45, uFar, depth));
+}`;
+
+const FRAGMENT = `#version 300 es
+precision highp float;
+in vec2 vLocal;
+in vec2 vHalf;
+in float vEmphasis;
+in float vFlash;
+in float vAngle;
+in float vShown;
+out vec4 fragColor;
+uniform vec3 uColor;
+uniform vec3 uAccent;
+uniform float uAccentMix;
+uniform float uOpacity;
+uniform float uFade;
+uniform int uShape;
+uniform float uHead;
+uniform float uRainbow;
+uniform float uTone;
+uniform float uPeriod;
+uniform vec2 uCanvas;
+uniform vec2 uOffset;
+uniform vec2 uPixels;
+uniform vec2 uEdge;
+
+float ndot(vec2 a, vec2 b) {
+  return a.x * b.x - a.y * b.y;
+}
+
+float rhombus(vec2 p, vec2 b) {
+  p = abs(p);
+  float h = clamp(ndot(b - 2.0 * p, b) / dot(b, b), -1.0, 1.0);
+  float d = length(p - 0.5 * b * vec2(1.0 - h, 1.0 + h));
+  return d * sign(p.x * b.y + p.y * b.x - b.x * b.y);
+}
+
+float triangle(vec2 p, vec2 q) {
+  p.x = abs(p.x);
+  vec2 a = p - q * clamp(dot(p, q) / dot(q, q), 0.0, 1.0);
+  vec2 b = p - q * vec2(clamp(p.x / q.x, 0.0, 1.0), 1.0);
+  float s = -sign(q.y);
+  vec2 d = min(vec2(dot(a, a), s * (p.x * q.y - p.y * q.x)), vec2(dot(b, b), s * (p.y - q.y)));
+  return -sqrt(d.x) * sign(d.y);
+}
+
+float capsule(vec2 p, float from, float to, float radius) {
+  float x = clamp(p.x, from, to);
+  return length(vec2(p.x - x, p.y)) - radius;
+}
+
+float feather(float distance, float zone) {
+  if (zone <= 0.0) return 1.0;
+  float t = clamp(distance / zone, 0.0, 1.0);
+  return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+vec3 spectrum(float hue, float tone) {
+  vec3 k = clamp(abs(fract(hue + vec3(0.0, 2.0, 1.0) / 3.0) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+  k = k * k * (3.0 - 2.0 * k);
+  float chroma = (1.0 - abs(2.0 * tone - 1.0)) * 0.92;
+  return tone + chroma * (k - 0.5);
+}
+
+void main() {
+  vec2 p = vLocal;
+  float aa = max(length(fwidth(p)) * 0.7071, 0.0001);
+  float halfWidth = max(vHalf.y, aa * 0.5);
+  float thin = vHalf.y / halfWidth;
+  float halfLength = max(vHalf.x, halfWidth);
+  float d;
+  if (uShape == 1) {
+    float head = min(halfLength * 0.9, max(halfWidth * 4.5, halfLength * 0.55));
+    float wing = max(uHead * halfLength, halfWidth * 2.2);
+    float shaft = capsule(p, -halfLength + halfWidth, halfLength - head * 0.6, halfWidth);
+    float tip = triangle(vec2(p.y, halfLength - p.x), vec2(wing, head));
+    d = min(shaft, tip);
+  } else if (uShape == 2) {
+    d = rhombus(p, vec2(halfLength, max(uHead * halfLength, halfWidth)));
+  } else {
+    d = capsule(p, -halfLength + halfWidth, halfLength - halfWidth, halfWidth);
+  }
+  float coverage = clamp(0.5 - d / aa, 0.0, 1.0) * thin;
+  if (coverage <= 0.0) discard;
+
+  float emphasis = clamp(vEmphasis + vFlash, 0.0, 1.0);
+  vec3 color = mix(uColor, uAccent, uAccentMix * emphasis);
+  if (uShape == 2) {
+    float north = smoothstep(-aa, aa, p.x);
+    color = mix(uColor, uAccent, north);
+  }
+  if (uRainbow > 0.5) {
+    float hue = fract(vAngle / uPeriod);
+    vec3 tint = spectrum(hue, uTone);
+    color = uShape == 2 ? mix(tint, uColor, 1.0 - smoothstep(-aa, aa, p.x)) : tint;
+  }
+  float alpha = uOpacity * mix(1.0 - uFade, 1.0, clamp(vEmphasis, 0.0, 1.0));
+  alpha = clamp(alpha + vFlash * 0.6, 0.0, 1.0) * coverage * vShown;
+  vec2 point = vec2(gl_FragCoord.x, uPixels.y - gl_FragCoord.y) * (uCanvas / uPixels) - uOffset;
+  vec2 inside = min(point, uCanvas - 2.0 * uOffset - point);
+  alpha *= feather(inside.x, uEdge.x) * feather(inside.y, uEdge.y);
+  fragColor = vec4(color * alpha, alpha);
+}`;
+
+const MODES = ['orbit', 'attract', 'spiral', 'dipole'];
+const SHAPES = { line: 0, arrow: 1, needle: 2 };
+const TAU = Math.PI * 2;
+const PULSE_SPEED = 520;
+const PULSE_SPIN = 0.34;
+const INTRO_SPEED = 700;
+const INTRO_TIME = 1.1;
+const INTRO_SPIN = 0.65;
+const FAR = 4;
+const MAX_LINES = 30000;
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const smootherstep = t => t * t * t * (t * (t * 6 - 15) + 10);
+
+const wrap = (value, period) => {
+  const half = period / 2;
+  return ((((value + half) % period) + period) % period) - half;
+};
+
+const seedFor = (column, row) => {
+  let hash = Math.imul(column + 40503, 2246822519) ^ Math.imul(row + 9973, 3266489917);
+  hash = Math.imul(hash ^ (hash >>> 15), 668265263);
+  hash = Math.imul(hash ^ (hash >>> 13), 374761393);
+  return (((hash ^ (hash >>> 16)) >>> 0) / 4294967296) * 2 - 1;
+};
+
+const parseColor = value => {
+  const text = String(value || '').trim();
+  const hex = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(text);
+  if (hex) {
+    const full = hex[1].length === 3 ? hex[1].replace(/./g, digit => digit + digit) : hex[1];
+    return [0, 2, 4].map(index => parseInt(full.slice(index, index + 2), 16) / 255);
+  }
+  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(text);
+  if (rgb) return [rgb[1], rgb[2], rgb[3]].map(channel => clamp(parseFloat(channel) / 255, 0, 1));
+  if (typeof document !== 'undefined') {
+    const context = document.createElement('canvas').getContext('2d');
+    if (context) {
+      context.fillStyle = '#000000';
+      context.fillStyle = text;
+      const normal = String(context.fillStyle);
+      if (normal !== '#000000' || /^(#0{3}|#0{6}|black)$/i.test(text)) return parseColor(normal);
+    }
+  }
+  return [0.94, 0.94, 0.94];
+};
+
+const lightness = rgb => (Math.max(...rgb) + Math.min(...rgb)) / 2;
+
+const compile = (gl, type, source) => {
+  const shader = gl.createShader(type);
+  if (!shader) return null;
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+};
+
+const link = gl => {
+  const vertex = compile(gl, gl.VERTEX_SHADER, VERTEX);
+  const fragment = compile(gl, gl.FRAGMENT_SHADER, FRAGMENT);
+  const program = vertex && fragment ? gl.createProgram() : null;
+  if (!vertex || !fragment || !program) {
+    if (vertex) gl.deleteShader(vertex);
+    if (fragment) gl.deleteShader(fragment);
+    return null;
+  }
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, fragment);
+  gl.linkProgram(program);
+  gl.deleteShader(vertex);
+  gl.deleteShader(fragment);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(program));
+    gl.deleteProgram(program);
+    return null;
+  }
+  const uniforms = {};
+  const count = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
+  for (let index = 0; index < count; index++) {
+    const info = gl.getActiveUniform(program, index);
+    if (info) uniforms[info.name] = gl.getUniformLocation(program, info.name);
+  }
+  return { program, uniforms };
+};
+
+const multiply = (a, b) => {
+  const out = [];
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      out.push(a[r * 3] * b[c] + a[r * 3 + 1] * b[c + 3] + a[r * 3 + 2] * b[c + 6]);
+    }
+  }
+  return out;
+};
+
+const invert = m => {
+  const [a, b, c, d, e, f, g, h, i] = m;
+  const A = e * i - f * h;
+  const B = f * g - d * i;
+  const C = d * h - e * g;
+  const det = a * A + b * B + c * C;
+  return [A, c * h - b * i, b * f - c * e, B, a * i - c * g, c * d - a * f, C, b * g - a * h, a * e - b * d].map(
+    value => value / det
+  );
+};
+
+const apply = (m, x, y) => {
+  const w = m[6] * x + m[7] * y + m[8];
+  return [(m[0] * x + m[1] * y + m[2]) / w, (m[3] * x + m[4] * y + m[5]) / w, w];
+};
+
+const viewFor = (tiltX, tiltY, width, height, fill) => {
+  const ax = (tiltX * Math.PI) / 180;
+  const ay = (tiltY * Math.PI) / 180;
+  const depth = Math.max(width, height) * 1.25;
+  const tilt = [
+    Math.cos(ay),
+    0,
+    0,
+    Math.sin(ax) * Math.sin(ay),
+    Math.cos(ax),
+    0,
+    (Math.sin(ay) * Math.cos(ax)) / depth,
+    -Math.sin(ax) / depth,
+    1
+  ];
+  if (fill) {
+    const forward = multiply([1, 0, width / 2, 0, 1, height / 2, 0, 0, 1], tilt);
+    return { forward, inverse: invert(forward), minScale: 1, maxScale: 1 };
+  }
+  const corners = [
+    [-width / 2, -height / 2],
+    [width / 2, -height / 2],
+    [width / 2, height / 2],
+    [-width / 2, height / 2]
+  ].map(([x, y]) => apply(tilt, x, y));
+  const xs = corners.map(point => point[0]);
+  const ys = corners.map(point => point[1]);
+  const spanX = Math.max(...xs) - Math.min(...xs);
+  const spanY = Math.max(...ys) - Math.min(...ys);
+  const fit = Math.min(1, width / Math.max(1, spanX), height / Math.max(1, spanY));
+  const midX = (Math.max(...xs) + Math.min(...xs)) / 2;
+  const midY = (Math.max(...ys) + Math.min(...ys)) / 2;
+  const place = [fit, 0, width / 2 - midX * fit, 0, fit, height / 2 - midY * fit, 0, 0, 1];
+  const forward = multiply(place, tilt);
+  const scales = corners.map(point => fit / Math.abs(point[2]));
+  return { forward, inverse: invert(forward), minScale: Math.min(...scales), maxScale: Math.max(...scales) };
+};
+
+const visibleRange = (view, width, height, cellX, cellY) => {
+  const inverse = view.inverse;
+  const edge = Math.max(cellX, cellY) * 2;
+  const corners = [
+    [-edge, -edge],
+    [width + edge, -edge],
+    [width + edge, height + edge],
+    [-edge, height + edge]
+  ];
+  const depthOf = ([x, y]) => inverse[6] * x + inverse[7] * y + inverse[8] - 1 / FAR;
+  const hull = [];
+  corners.forEach((from, index) => {
+    const to = corners[(index + 1) % corners.length];
+    const a = depthOf(from);
+    const b = depthOf(to);
+    if (a >= 0) hull.push(from);
+    if (a >= 0 !== b >= 0) {
+      const t = a / (a - b);
+      hull.push([from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t]);
+    }
+  });
+  if (hull.length < 3) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of hull) {
+    const point = apply(inverse, x, y);
+    minX = Math.min(minX, point[0]);
+    minY = Math.min(minY, point[1]);
+    maxX = Math.max(maxX, point[0]);
+    maxY = Math.max(maxY, point[1]);
+  }
+  return {
+    fromColumn: Math.floor((minX + width / 2) / cellX - 0.5) - 1,
+    toColumn: Math.ceil((maxX + width / 2) / cellX - 0.5) + 1,
+    fromRow: Math.floor((minY + height / 2) / cellY - 0.5) - 1,
+    toRow: Math.ceil((maxY + height / 2) / cellY - 0.5) + 1
+  };
+};
+
+
+function mountMagnetLines(container, opts, remount) {
+  const o = Object.assign({spacing:30,lineColor:'#efefef',lineWidth:2,lineHeight:18,baseAngle:-10,mode:'orbit',shape:'line',rainbow:false,radius:200,fade:.65,edgeFade:0,stretch:.4,reach:0,scatter:0,inertia:.35,bounce:.3,ripple:.3,clickPulse:true,intro:true,idle:false,tiltX:0,tiltY:0,maxDevicePixelRatio:2}, opts || {});
+  const canvas = document.createElement('canvas'); canvas.className = 'magnet-lines__canvas'; canvas.setAttribute('aria-hidden','true');
+  const probe = document.createElement('span'); probe.className = 'magnet-lines__probe'; probe.setAttribute('aria-hidden','true');
+  container.replaceChildren(canvas, probe);
+  const color = parseColor(o.lineColor);
+  const accent = o.accentColor ? parseColor(o.accentColor) : null;
+  const settings = {
+    square: false, spacing: Math.max(4, Number(o.spacing) || 30),
+    rows: o.rows ? clamp(Math.round(o.rows), 1, 400) : 0, columns: o.columns ? clamp(Math.round(o.columns), 1, 400) : 0,
+    lineWidth: o.lineWidth, lineHeight: o.lineHeight, baseAngle: (o.baseAngle * Math.PI) / 180,
+    mode: MODES.includes(o.mode) ? o.mode : 'orbit', shape: SHAPES[o.shape] !== undefined ? o.shape : 'line',
+    color, accent: accent ?? (o.shape === 'needle' ? parseColor('#f43f5e') : color), accentMix: accent ? 1 : 0,
+    rainbow: o.rainbow, tone: clamp(lightness(color), 0.42, 0.66), radius: Math.max(1, o.radius),
+    fade: clamp(o.fade, 0, 1), edgeFade: clamp(o.edgeFade, 0, 1), stretch: clamp(o.stretch, 0, 2), reach: Math.max(0, o.reach),
+    scatter: clamp(o.scatter, 0, 1), inertia: clamp(o.inertia, 0, 1), bounce: clamp(o.bounce, 0, 1), ripple: clamp(o.ripple, 0, 1),
+    clickPulse: o.clickPulse, intro: o.intro, idle: o.idle, tiltX: clamp(o.tiltX, -70, 70), tiltY: clamp(o.tiltY, -70, 70),
+    maxRatio: clamp(o.maxDevicePixelRatio, 0.5, 3)
+  };
+  const api = { dispose() {} };
+    const gl = canvas.getContext('webgl2', {
+      alpha: true,
+      premultipliedAlpha: true,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      powerPreference: 'default'
+    });
+    const program = gl ? link(gl) : null;
+    if (!gl || !program) return { dispose() {} };
+
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const cornerBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, cornerBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const centerBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, centerBuffer);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(1, 1);
+    const stateBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, stateBuffer);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(2, 1);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+    const field = {
+      width: 1,
+      height: 1,
+      pad: 0,
+      ratio: 1,
+      view: null,
+      length: 20,
+      thickness: 2,
+      fill: true,
+      edgePad: 1,
+      minScale: 1,
+      maxScale: 1,
+      introSpeed: INTRO_SPEED,
+      bounds: [0, 0, 0, 0],
+      key: ''
+    };
+    const pointer = { x: 0, y: 0, vx: 0, vy: 0, time: 0, seen: false, inside: false, away: 0 };
+    const target = { x: 0, y: 0, heading: 0 };
+    const pulses = [];
+    let count = 0;
+    let centers = new Float32Array(0);
+    let cells = new Int32Array(0);
+    let reveal = new Float32Array(0);
+    let rests = new Float32Array(0);
+    let seeds = new Float32Array(0);
+    let angles = new Float32Array(0);
+    let speeds = new Float32Array(0);
+    let seenX = new Float32Array(0);
+    let seenY = new Float32Array(0);
+    let pending = new Uint8Array(0);
+    let state = new Float32Array(0);
+    let introStart = -1;
+    let introLive = settings.intro && !reduced && !remount;
+    let raf = 0;
+    let last = 0;
+    let clock = 0;
+    let visible = true;
+    let pageVisible = document.visibilityState !== 'hidden';
+    let lost = false;
+    let dirty = true;
+
+    const measure = value => {
+      if (typeof value === 'number') return value;
+      probe.style.width = String(value);
+      return probe.getBoundingClientRect().width;
+    };
+
+    const layout = (width, height, view, columnCount, rowCount, tiled) => {
+      const cellX = width / columnCount;
+      const cellY = height / rowCount;
+      const range = tiled
+        ? visibleRange(view, width, height, cellX, cellY)
+        : { fromColumn: 0, toColumn: columnCount - 1, fromRow: 0, toRow: rowCount - 1 };
+      const origin = apply(view.forward, 0, 0);
+      const found = [];
+      if (range) {
+        for (let row = range.fromRow; row <= range.toRow; row++) {
+          const y = (row + 0.5) * cellY - height / 2;
+          for (let column = range.fromColumn; column <= range.toColumn; column++) {
+            const x = (column + 0.5) * cellX - width / 2;
+            const [screenX, screenY, w] = apply(view.forward, x, y);
+            if (tiled) {
+              if (w <= 0 || w > FAR) continue;
+              const margin = (0.49 * Math.min(cellX, cellY)) / w;
+              if (screenX < -margin || screenX > width + margin || screenY < -margin || screenY > height + margin)
+                continue;
+            }
+            found.push({ x, y, column, row, w, distance: Math.hypot(screenX - origin[0], screenY - origin[1]) });
+          }
+        }
+      }
+      if (found.length > MAX_LINES) {
+        found.sort((a, b) => a.w - b.w);
+        found.length = MAX_LINES;
+      }
+
+      const previous = new Map();
+      for (let index = 0; index < count; index++) previous.set(cells[index * 2] * 65536 + cells[index * 2 + 1], index);
+      const total = found.length;
+      const next = {
+        centers: new Float32Array(total * 2),
+        cells: new Int32Array(total * 2),
+        reveal: new Float32Array(total),
+        seeds: new Float32Array(total),
+        rests: new Float32Array(total),
+        angles: new Float32Array(total),
+        speeds: new Float32Array(total),
+        seenX: new Float32Array(total),
+        seenY: new Float32Array(total),
+        pending: new Uint8Array(total)
+      };
+      let farthest = 0;
+      let nearest = Infinity;
+      let deepest = 0;
+      const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+      found.forEach((item, index) => {
+        next.centers[index * 2] = item.x;
+        next.centers[index * 2 + 1] = item.y;
+        next.cells[index * 2] = item.column;
+        next.cells[index * 2 + 1] = item.row;
+        next.reveal[index] = item.distance;
+        next.seeds[index] = seedFor(item.column, item.row);
+        farthest = Math.max(farthest, item.distance);
+        nearest = Math.min(nearest, item.w);
+        deepest = Math.max(deepest, item.w);
+        bounds[0] = Math.min(bounds[0], item.x);
+        bounds[1] = Math.min(bounds[1], item.y);
+        bounds[2] = Math.max(bounds[2], item.x);
+        bounds[3] = Math.max(bounds[3], item.y);
+        const old = previous.get(item.column * 65536 + item.row);
+        if (old === undefined) {
+          next.pending[index] = 1;
+          return;
+        }
+        next.angles[index] = angles[old];
+        next.speeds[index] = speeds[old];
+        next.seenX[index] = seenX[old];
+        next.seenY[index] = seenY[old];
+      });
+
+      count = total;
+      ({ centers, cells, reveal, seeds, rests, angles, speeds, seenX, seenY, pending } = next);
+      state = new Float32Array(total * 4);
+      field.introSpeed = Math.max(INTRO_SPEED, farthest / INTRO_TIME);
+      field.bounds = total ? bounds : [0, 0, 0, 0];
+      field.minScale = total ? 1 / deepest : 1;
+      field.maxScale = total ? 1 / nearest : 1;
+      gl.bindBuffer(gl.ARRAY_BUFFER, centerBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, centers, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, stateBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, state.byteLength || 16, gl.DYNAMIC_DRAW);
+    };
+
+    const rebuild = () => {
+      const s = settings;
+      const rect = container.getBoundingClientRect();
+      const width = Math.max(1, rect.width);
+      const height = Math.max(1, rect.height);
+      const length = Math.max(1, measure(s.lineHeight));
+      const thickness = Math.max(0.25, measure(s.lineWidth));
+      const fill = !s.square;
+      const tiled = fill && (s.tiltX !== 0 || s.tiltY !== 0);
+      const view = viewFor(s.tiltX, s.tiltY, width, height, fill);
+      const ratio = Math.min(window.devicePixelRatio || 1, s.maxRatio);
+
+      let columnCount = Math.max(1, Math.round(s.columns || (s.rows ? (s.rows * width) / height : width / s.spacing)));
+      let rowCount = Math.max(1, Math.round(s.rows || (s.columns ? (s.columns * height) / width : height / s.spacing)));
+      if (columnCount * rowCount > MAX_LINES) {
+        const shrink = Math.sqrt((columnCount * rowCount) / MAX_LINES);
+        columnCount = Math.max(1, Math.floor(columnCount / shrink));
+        rowCount = Math.max(1, Math.floor(rowCount / shrink));
+      }
+
+      const key = [
+        fill,
+        columnCount,
+        rowCount,
+        width.toFixed(1),
+        height.toFixed(1),
+        tiled ? `${s.tiltX},${s.tiltY}` : ''
+      ].join('|');
+      if (key !== field.key) {
+        field.key = key;
+        layout(width, height, view, columnCount, rowCount, tiled);
+      }
+
+      const minScale = fill ? field.minScale : view.minScale;
+      const maxScale = fill ? field.maxScale : view.maxScale;
+      const pad = fill ? 0 : Math.ceil((length * (1 + s.stretch) + thickness * 2) * Math.max(1, maxScale) + 8);
+      const canvasWidth = width + pad * 2;
+      const canvasHeight = height + pad * 2;
+      canvas.style.left = `${-pad}px`;
+      canvas.style.top = `${-pad}px`;
+      canvas.style.width = `${canvasWidth}px`;
+      canvas.style.height = `${canvasHeight}px`;
+      const pixelWidth = Math.max(1, Math.round(canvasWidth * ratio));
+      const pixelHeight = Math.max(1, Math.round(canvasHeight * ratio));
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
+      Object.assign(field, {
+        width,
+        height,
+        pad,
+        ratio,
+        view,
+        length,
+        thickness,
+        fill,
+        edgePad: 2 / (ratio * Math.max(0.05, minScale))
+      });
+    };
+
+    const fieldAngle = (s, index, px, py) => {
+      const dx = px - centers[index * 2];
+      const dy = py - centers[index * 2 + 1];
+      if (s.mode === 'dipole') {
+        const distance = Math.hypot(dx, dy) || 1;
+        const rx = -dx / distance;
+        const ry = -dy / distance;
+        const mx = Math.cos(target.heading);
+        const my = Math.sin(target.heading);
+        const dot = mx * rx + my * ry;
+        return Math.atan2(3 * dot * ry - my, 3 * dot * rx - mx);
+      }
+      const toward = Math.atan2(dy, dx);
+      if (s.mode === 'attract') return toward;
+      if (s.mode === 'spiral') return toward + Math.PI / 4;
+      return toward + Math.PI / 2;
+    };
+
+    const frame = now => {
+      raf = 0;
+      if (lost) return;
+      const s = settings;
+      const dt = clamp((now - last) / 1000 || 0, 0, 0.05);
+      last = Math.max(last, now);
+      clock += dt;
+      if (dirty) rebuild();
+      dirty = false;
+
+      const period = s.shape === 'line' ? Math.PI : TAU;
+      const spread = s.scatter * Math.PI * 0.5;
+      for (let index = 0; index < count; index++) rests[index] = s.baseAngle + Math.PI / 2 + seeds[index] * spread;
+
+      const wandering = s.idle && !reduced && (!pointer.seen || pointer.away > 1.2);
+      if (pointer.seen && !pointer.inside) pointer.away += dt;
+      let px = pointer.seen ? pointer.x : 0;
+      let py = pointer.seen ? pointer.y : 0;
+      if (wandering) {
+        const amount = Math.min(field.width, field.height) * 0.32;
+        px = Math.cos(clock * 0.37) * amount + Math.sin(clock * 0.21) * amount * 0.35;
+        py = Math.sin(clock * 0.53 + 1.3) * amount * 0.8;
+      }
+      const follow = 1 - Math.exp(-dt / (pointer.seen && !wandering ? 0.035 : 0.6));
+      target.x += (px - target.x) * follow;
+      target.y += (py - target.y) * follow;
+      const speed = Math.hypot(pointer.vx, pointer.vy);
+      if (speed > 40) {
+        const turn = wrap(Math.atan2(pointer.vy, pointer.vx) - target.heading, TAU);
+        target.heading += turn * (1 - Math.exp(-dt / 0.25));
+      }
+      pointer.vx *= Math.exp(-dt / 0.12);
+      pointer.vy *= Math.exp(-dt / 0.12);
+
+      if (introLive && introStart < 0) introStart = clock;
+      const introTime = introLive ? clock - introStart : Infinity;
+      let introBusy = false;
+
+      const stiffness = s.inertia <= 0 || reduced ? 0 : Math.pow(6 + 42 * Math.pow(1 - s.inertia, 2), 2);
+      const damping = stiffness ? 2 * Math.sqrt(stiffness) * (1 - 0.75 * s.bounce) : 0;
+      const steps = stiffness ? Math.max(1, Math.ceil(dt / (1 / 240))) : 0;
+      const h = steps ? dt / steps : 0;
+      const lag = reduced ? 0 : s.ripple / 900;
+      const radius = s.radius;
+      const reachIn = s.reach * 0.55;
+      const reachOut = s.reach;
+
+      for (let i = pulses.length - 1; i >= 0; i--) {
+        const age = clock - pulses[i].start;
+        if (age > pulses[i].life) pulses.splice(i, 1);
+      }
+
+      let moving = false;
+      for (let index = 0; index < count; index++) {
+        const cx = centers[index * 2];
+        const cy = centers[index * 2 + 1];
+        const born = pending[index] === 1;
+        if (born) {
+          seenX[index] = target.x;
+          seenY[index] = target.y;
+        } else {
+          const distance = Math.hypot(target.x - cx, target.y - cy);
+          const tau = lag * distance;
+          const k = tau > 0 ? 1 - Math.exp(-dt / tau) : 1;
+          seenX[index] += (target.x - seenX[index]) * k;
+          seenY[index] += (target.y - seenY[index]) * k;
+          if (Math.abs(target.x - seenX[index]) + Math.abs(target.y - seenY[index]) > 0.05) moving = true;
+        }
+        const sx = seenX[index];
+        const sy = seenY[index];
+        const near = Math.hypot(sx - cx, sy - cy);
+        let goal = fieldAngle(s, index, sx, sy);
+        const rest = rests[index];
+        if (reachOut > 0) {
+          const t = clamp((reachOut - near) / Math.max(1, reachOut - reachIn), 0, 1);
+          goal = rest + wrap(goal - rest, period) * smootherstep(t);
+        }
+        let shown = 1;
+        if (introLive) {
+          const local = (introTime - reveal[index] / field.introSpeed) / INTRO_SPIN;
+          const progress = smootherstep(clamp(local, 0, 1));
+          if (local < 1) introBusy = true;
+          goal = rest + wrap(goal - rest, period) * progress;
+          shown = clamp(local * 2.5, 0, 1);
+        }
+        if (born) {
+          angles[index] = introLive ? rest : goal;
+          speeds[index] = 0;
+          pending[index] = 0;
+        } else if (!stiffness) {
+          angles[index] = angles[index] + wrap(goal - angles[index], period);
+          speeds[index] = 0;
+        } else {
+          let angle = angles[index];
+          let velocity = speeds[index];
+          for (let step = 0; step < steps; step++) {
+            velocity += (stiffness * wrap(goal - angle, period) - damping * velocity) * h;
+            angle += velocity * h;
+          }
+          if (Math.abs(velocity) < 0.002 && Math.abs(wrap(goal - angle, period)) < 0.0005) {
+            angle += wrap(goal - angle, period);
+            velocity = 0;
+          } else moving = true;
+          if (angle > 40 || angle < -40) angle = wrap(angle, TAU);
+          angles[index] = angle;
+          speeds[index] = velocity;
+        }
+
+        let spin = 0;
+        let flash = 0;
+        for (const pulse of pulses) {
+          const travelled = (clock - pulse.start) * PULSE_SPEED;
+          const gap = Math.hypot(cx - pulse.x, cy - pulse.y);
+          const local = (travelled - gap) / (PULSE_SPEED * PULSE_SPIN);
+          if (local > 0 && local < 1) spin += smootherstep(local) * period;
+          const band = (travelled - gap - PULSE_SPEED * PULSE_SPIN * 0.5) / 60;
+          flash += Math.exp(-band * band) * Math.max(0, 1 - (clock - pulse.start) / pulse.life);
+        }
+
+        const emphasis = Math.exp(-(near * near) / (radius * radius)) * shown;
+        state[index * 4] = angles[index] + spin;
+        state[index * 4 + 1] = emphasis;
+        state[index * 4 + 2] = Math.min(1, flash * 0.9) * shown;
+        state[index * 4 + 3] = shown;
+      }
+      if (introLive && !introBusy && clock - introStart > 0.2) introLive = false;
+      if (Math.abs(px - target.x) + Math.abs(py - target.y) > 0.05) moving = true;
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      if (count && field.view) {
+        const u = program.uniforms;
+        gl.useProgram(program.program);
+        gl.uniformMatrix3fv(u.uView, true, field.view.forward);
+        gl.uniform2f(u.uCanvas, field.width + field.pad * 2, field.height + field.pad * 2);
+        gl.uniform2f(u.uOffset, field.pad, field.pad);
+        gl.uniform2f(u.uLine, field.length / 2, field.thickness / 2);
+        gl.uniform1f(u.uStretch, s.stretch);
+        gl.uniform1f(u.uHead, s.shape === 'needle' ? 0.16 : s.shape === 'arrow' ? 0.32 : 0);
+        gl.uniform1f(u.uPad, field.edgePad);
+        gl.uniform1f(u.uFar, field.fill ? FAR : 1e6);
+        gl.uniform3fv(u.uColor, s.color);
+        gl.uniform3fv(u.uAccent, s.accent);
+        gl.uniform1f(u.uAccentMix, s.accentMix);
+        gl.uniform1f(u.uOpacity, 1);
+        gl.uniform1f(u.uFade, s.fade);
+        gl.uniform1i(u.uShape, SHAPES[s.shape]);
+        gl.uniform1f(u.uRainbow, s.rainbow ? 1 : 0);
+        gl.uniform1f(u.uTone, s.tone);
+        gl.uniform1f(u.uPeriod, period);
+        gl.uniform2f(u.uPixels, canvas.width, canvas.height);
+        gl.uniform2f(u.uEdge, s.edgeFade * 0.34 * field.width, s.edgeFade * 0.44 * field.height);
+        gl.bindVertexArray(vao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, stateBuffer);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, state);
+        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
+      }
+
+      const busy = moving || introLive || pulses.length > 0 || wandering;
+      if (busy && visible && pageVisible) raf = requestAnimationFrame(frame);
+    };
+
+    const wake = () => {
+      if (raf || lost || !visible || !pageVisible) return;
+      last = performance.now();
+      raf = requestAnimationFrame(frame);
+    };
+    const toPlane = (clientX, clientY) => {
+      if (!field.view) return null;
+      const rect = container.getBoundingClientRect();
+      const [x, y, w] = apply(field.view.inverse, clientX - rect.left, clientY - rect.top);
+      if (w <= 0) return null;
+      const inside = clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+      return { x, y, inside };
+    };
+
+    const onPointerMove = event => {
+      const spot = toPlane(event.clientX, event.clientY);
+      if (!spot) return;
+      const now = performance.now();
+      const dt = Math.max(1, now - pointer.time) / 1000;
+      if (pointer.seen && dt < 0.2) {
+        pointer.vx = pointer.vx * 0.6 + ((spot.x - pointer.x) / dt) * 0.4;
+        pointer.vy = pointer.vy * 0.6 + ((spot.y - pointer.y) / dt) * 0.4;
+      }
+      pointer.time = now;
+      pointer.x = spot.x;
+      pointer.y = spot.y;
+      pointer.seen = true;
+      pointer.inside = spot.inside;
+      if (spot.inside) pointer.away = 0;
+      wake();
+    };
+
+    const onPointerDown = event => {
+      onPointerMove(event);
+      const s = settings;
+      if (!s.clickPulse || reduced || !count) return;
+      const spot = toPlane(event.clientX, event.clientY);
+      if (!spot) return;
+      const inside = field.fill
+        ? spot.inside
+        : Math.abs(spot.x) <= field.width / 2 && Math.abs(spot.y) <= field.height / 2;
+      if (!inside) return;
+      const [minX, minY, maxX, maxY] = field.bounds;
+      const farthest = Math.max(
+        Math.hypot(spot.x - minX, spot.y - minY),
+        Math.hypot(spot.x - maxX, spot.y - minY),
+        Math.hypot(spot.x - minX, spot.y - maxY),
+        Math.hypot(spot.x - maxX, spot.y - maxY)
+      );
+      pulses.push({
+        x: spot.x,
+        y: spot.y,
+        start: clock,
+        life: Math.min(6, farthest / PULSE_SPEED + PULSE_SPIN + 0.1)
+      });
+      if (pulses.length > 6) pulses.shift();
+      wake();
+    };
+
+    const onLeave = () => {
+      pointer.inside = false;
+      wake();
+    };
+
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerdown', onPointerDown, { passive: true });
+    document.documentElement.addEventListener('pointerleave', onLeave);
+
+    const onLost = event => {
+      event.preventDefault();
+      lost = true;
+      cancelAnimationFrame(raf);
+      raf = 0;
+    };
+    const onRestored = () => { api.dispose(); const n = mountMagnetLines(container, Object.assign({}, o, { intro: false }), true); api.dispose = n.dispose; };
+    canvas.addEventListener('webglcontextlost', onLost);
+    canvas.addEventListener('webglcontextrestored', onRestored);
+
+    const resizeObserver = new ResizeObserver(() => {
+      dirty = true;
+      wake();
+    });
+    resizeObserver.observe(container);
+    const onResize = () => {
+      dirty = true;
+      wake();
+    };
+    window.addEventListener('resize', onResize);
+
+    const intersection = new IntersectionObserver(entries => {
+      visible = entries.some(entry => entry.isIntersecting);
+      wake();
+    });
+    intersection.observe(container);
+
+    const onVisibility = () => {
+      pageVisible = document.visibilityState !== 'hidden';
+      wake();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    wake();
+
+
+  api.dispose = () => {
+    cancelAnimationFrame(raf);
+    resizeObserver.disconnect();
+    intersection.disconnect();
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerdown', onPointerDown);
+    window.removeEventListener('resize', onResize);
+    document.documentElement.removeEventListener('pointerleave', onLeave);
+    document.removeEventListener('visibilitychange', onVisibility);
+    canvas.removeEventListener('webglcontextlost', onLost);
+    canvas.removeEventListener('webglcontextrestored', onRestored);
+    if (!gl.isContextLost()) {
+      gl.deleteBuffer(cornerBuffer); gl.deleteBuffer(centerBuffer); gl.deleteBuffer(stateBuffer);
+      gl.deleteVertexArray(vao); gl.deleteProgram(program.program);
+    }
+  };
+  return api;
+}
+try { window.__magnet = mountMagnetLines(document.getElementById('magnet'), {lineColor:'#efefef',spacing:21,lineWidth:3,lineHeight:12,mode:'orbit',shape:'line',radius:150,fade:.65}); } catch (e) { console.error(e); }
+</script>
+</body>
+</html>
